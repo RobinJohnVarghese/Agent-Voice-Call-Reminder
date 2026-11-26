@@ -6,7 +6,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 
-from app.api import campaigns, webhooks
+from app.api import campaigns, media, webhooks
 from app.config import get_settings
 from app.database import engine
 
@@ -19,7 +19,9 @@ app = FastAPI(title=settings.app_name, version="1.0.0")
 app.include_router(campaigns.router)
 app.include_router(webhooks.router)
 
-if settings.storage_backend == "local":
+if settings.storage_backend == "database":
+    app.include_router(media.router)
+elif settings.storage_backend == "local":
     media_dir = Path(settings.local_media_dir)
     media_dir.mkdir(parents=True, exist_ok=True)
     app.mount("/media", StaticFiles(directory=media_dir), name="media")

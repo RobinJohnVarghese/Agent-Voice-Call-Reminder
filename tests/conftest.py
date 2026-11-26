@@ -12,7 +12,8 @@ os.environ.update(
         "TTS_PROVIDER": "fake",
         "TELEPHONY_PROVIDER": "fake",
         "FAKE_CALL_DELAY_SECONDS": "-1",
-        "STORAGE_BACKEND": "local",
+        "FAKE_CALL_OUTCOME": "completed",
+        "STORAGE_BACKEND": "database",
         "LOCAL_MEDIA_DIR": str(_tmp / "media"),
         "AUDIO_FORMAT": "wav",
         "PUBLIC_BASE_URL": "https://voice.example.test",
@@ -51,11 +52,11 @@ def client():
 
 
 CSV = (
-    "Name,Phone Number,Appointment Date\n"
-    "Asha,+919876543210,28 Nov\n"
-    "Rahul,9876501234,29 Nov\n"
-    "Dup,919876543210,30 Nov\n"
-    "Bad,12345,1 Dec\n"
+    "Name,Phone Number,Email ID,Appointment Date\n"
+    "Asha,+919876543210,asha@example.com,28 Nov\n"
+    "Rahul,9876501234,rahul@example.com,29 Nov\n"
+    "Dup,919876543210,,30 Nov\n"
+    "Bad,12345,,1 Dec\n"
 )
 
 
@@ -64,7 +65,7 @@ def create_campaign(client):
     def _create(message="Hello, this is your reminder.", csv_text=CSV, **fields):
         data = {"name": "Test", "message": message, "language": "en-IN", **fields}
         files = {"file": ("people.csv", csv_text.encode(), "text/csv")}
-        response = client.post("/api/campaigns", data=data, files=files)
+        response = client.post("/api/campaigns/upload", data=data, files=files)
         assert response.status_code == 201, response.text
         return response.json()
 

@@ -20,17 +20,17 @@
         <label>Campaign name <input name="name" required maxlength="200" placeholder="Clinic appointment reminder" /></label>
         <label>Recipients file (CSV or Excel)
           <input name="file" type="file" accept=".csv,.xlsx,.xls" required />
-          <small>Needs a <code>phone</code> column. Optional <code>name</code> and any other columns.
+          <small>Columns: <code>name</code>, <code>phone</code>, <code>email</code> (phone is required).
             <a href="/api/sample-recipients.csv">Download sample</a></small>
         </label>
         <label>Message
           <textarea name="message" rows="4" required maxlength="2000"
-            placeholder="Hello {name}, this is a reminder of your appointment on {appointment_date}."></textarea>
-          <small>Use <code>{column_name}</code> placeholders to personalise each call (one audio per recipient).</small>
+            placeholder="Hello, this is a reminder that your appointment is tomorrow at 10 AM."></textarea>
+          <small id="personalization-hint" class="hidden">Use <code>{column_name}</code> placeholders to personalise each call (one audio per recipient).</small>
         </label>
         <div class="row">
           <label>Language <select name="language" id="language"></select></label>
-          <label>Voice <select name="voice" id="voice"></select></label>
+          <label>Voice <select name="voice_gender" id="voice-gender"><option value="female">Female</option><option value="male">Male</option></select></label>
         </div>
         <div class="row">
           <label class="check"><input type="checkbox" name="translate" value="true" /> Translate message into the selected language</label>
@@ -68,7 +68,7 @@
         <label>Filter <select id="status-filter"><option value="">All</option></select></label>
       </div>
       <table id="calls">
-        <thead><tr><th>Name</th><th>Phone</th><th>Status</th><th>Attempts</th><th>Hangup cause</th><th>Duration</th><th>Updated</th><th>Error</th></tr></thead>
+        <thead><tr><th>Name</th><th>Phone</th><th>Email</th><th>Status</th><th>Attempts</th><th>Hangup cause</th><th>Duration</th><th>Updated</th><th>Error</th></tr></thead>
         <tbody></tbody>
       </table>
       <div class="pager"><button id="prev" class="secondary">Prev</button><span id="page-info"></span><button id="next" class="secondary">Next</button></div>

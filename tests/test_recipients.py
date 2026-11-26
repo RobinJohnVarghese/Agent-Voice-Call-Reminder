@@ -24,6 +24,11 @@ def test_parse_excel_with_numeric_phone_and_extra_columns():
     assert result.recipients[0].variables["due_date"] == "1 Dec"
 
 
+def test_email_column_aliases():
+    result = parse_recipients("l.csv", b"Name,Mobile,Mail ID\nAsha,9876543210,asha@example.com\n", "IN", 10)
+    assert result.recipients[0].email == "asha@example.com"
+
+
 def test_missing_phone_column():
     with pytest.raises(RecipientFileError, match="No phone column"):
         parse_recipients("list.csv", b"name,email\nA,a@x.com\n", "IN", 100)

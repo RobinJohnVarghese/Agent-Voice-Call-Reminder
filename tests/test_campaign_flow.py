@@ -24,20 +24,63 @@ def test_create_campaign_imports_and_generates_audio(client, create_campaign):
     audio = client.get(f"/api/campaigns/{campaign['id']}/audio", follow_redirects=False)
     assert audio.status_code == 307
     assert audio.headers["location"].startswith("https://voice.example.test/media/voice-reminders/campaigns/")
-    local = audio.headers["location"].replace("https://voice.example.test", "")
-    assert client.get(local).content[:4] == b"RIFF"
+    stored = client.get(audio.headers["location"].replace("https://voice.example.test", ""))
+    assert stored.status_code == 200 and stored.headers["content-type"] == "audio/wav"
+    assert stored.content[:4] == b"RIFF"
+    assert campaign["voice_gender"] == "female" and campaign["voice"] == "Kore"
+    calls = _calls(campaign["id"])
+    assert [c.email for c in calls] == ["asha@example.com", "rahul@example.com"]
 
 
-def test_rejects_unknown_placeholder(client):
+def test_create_campaign_via_json_api(client):
+    payload = {
+        "name": "JSON",
+        "message": "Your bill is due tomorrow.",
+        "language": "ml-IN",
+        "voice_gender": "male",
+        "recipients": [
+            {"name": "Asha", "phone": "9876543210", "email": "asha@example.com"},
+            {"name": "Bad", "phone": "123"},
+            {"phone": "+91 98765 43210"},
+        ],
+    }
+    r = client.post("/api/campaigns", json=payload)
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["import_summary"]["imported"] == 1
+    assert body["import_summary"]["duplicates"] == 1
+    assert body["import_summary"]["errors"] == [{"row": 2, "error": "invalid phone number '123'"}]
+    assert body["campaign"]["voice"] == "Charon"
+    (call,) = _calls(body["campaign"]["id"])
+    assert (call.name, call.phone_number, call.email) == ("Asha", "+919876543210", "asha@example.com")
+
+
+def test_json_api_validation(client):
+    base = {"name": "x", "message": "hi", "recipients": [{"phone": "9876543210"}]}
+    assert client.post("/api/campaigns", json={**base, "voice_gender": "robot"}).status_code == 422
+    assert client.post("/api/campaigns", json={**base, "language": "fr-FR"}).status_code == 422
+    bad_email = {**base, "recipients": [{"phone": "9876543210", "email": "x"}]}
+    assert client.post("/api/campaigns", json=bad_email).status_code == 422
+    assert client.post("/api/campaigns", json={**base, "recipients": []}).status_code == 422
+
+
+def test_placeholders_spoken_literally_when_personalization_disabled(client, create_campaign):
+    cid = create_campaign(message="Hello {name}")["campaign"]["id"]
+    campaign = client.get(f"/api/campaigns/{cid}").json()
+    assert campaign["personalized"] is False and campaign["spoken_message"] == "Hello {name}"
+
+
+def test_rejects_unknown_placeholder(client, settings, monkeypatch):
+    monkeypatch.setattr(settings, "enable_personalization", True)
     files = {"file": ("p.csv", b"phone\n9876543210\n", "text/csv")}
-    r = client.post("/api/campaigns", data={"name": "x", "message": "Hi {name} {date}"}, files=files)
+    r = client.post("/api/campaigns/upload", data={"name": "x", "message": "Hi {name} {date}"}, files=files)
     assert r.status_code == 422
     assert "date" in r.json()["detail"]
 
 
 def test_rejects_unknown_language(client):
     files = {"file": ("p.csv", b"phone\n9876543210\n", "text/csv")}
-    r = client.post("/api/campaigns", data={"name": "x", "message": "Hi", "language": "xx"}, files=files)
+    r = client.post("/api/campaigns/upload", data={"name": "x", "message": "Hi", "language": "xx"}, files=files)
     assert r.status_code == 422
 
 
@@ -57,7 +100,8 @@ def test_auto_start(client, create_campaign):
     assert client.get(f"/api/campaigns/{cid}").json()["status"] == "running"
 
 
-def test_personalized_audio_per_recipient(client, create_campaign):
+def test_personalized_audio_per_recipient(client, create_campaign, settings, monkeypatch):
+    monkeypatch.setattr(settings, "enable_personalization", True)
     cid = create_campaign(message="Hello {name}, your appointment is on {appointment_date}.")["campaign"]["id"]
     campaign = client.get(f"/api/campaigns/{cid}").json()
     assert campaign["personalized"] is True
@@ -101,7 +145,7 @@ def test_full_call_lifecycle_and_campaign_completion(client, create_campaign):
     assert campaign["status"] == CampaignStatus.completed.value
 
     export = client.get(f"/api/campaigns/{cid}/export").text.splitlines()
-    assert export[0].startswith("name,phone_number,status")
+    assert export[0].startswith("name,phone_number,email,status")
     assert "completed" in export[1] and "failed" in export[2]
 
 

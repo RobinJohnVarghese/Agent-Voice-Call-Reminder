@@ -1,6 +1,7 @@
 from datetime import datetime
+from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from app.models import CallStatus, CampaignStatus
 
@@ -13,6 +14,7 @@ class CampaignOut(BaseModel):
     message: str
     spoken_message: str | None
     language: str
+    voice_gender: str
     voice: str
     translate: bool
     personalized: bool
@@ -47,6 +49,7 @@ class CallOut(BaseModel):
     campaign_id: int
     name: str | None
     phone_number: str
+    email: str | None
     status: CallStatus
     attempts: int
     plivo_request_uuid: str | None
@@ -66,3 +69,19 @@ class CallPage(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class RecipientIn(BaseModel):
+    name: str | None = Field(None, max_length=200)
+    phone: str = Field(..., max_length=32, examples=["+919876543210"])
+    email: EmailStr | None = None
+
+
+class CampaignCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=200, examples=["Clinic appointment reminder"])
+    message: str = Field(..., min_length=1, max_length=2000)
+    language: str = Field("en-IN", examples=["ml-IN"])
+    voice_gender: Literal["female", "male"] = "female"
+    translate: bool = False
+    auto_start: bool = False
+    recipients: list[RecipientIn] = Field(..., min_length=1)

@@ -1,7 +1,7 @@
 import enum
 from datetime import datetime, timezone
 
-from sqlalchemy import JSON, Boolean, DateTime, Enum, ForeignKey, Integer, String, Text, func
+from sqlalchemy import JSON, Boolean, DateTime, Enum, ForeignKey, Integer, LargeBinary, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -65,6 +65,7 @@ class Campaign(Base):
     message: Mapped[str] = mapped_column(Text)
     spoken_message: Mapped[str | None] = mapped_column(Text)
     language: Mapped[str] = mapped_column(String(16))
+    voice_gender: Mapped[str] = mapped_column(String(16), default="female", server_default="female")
     voice: Mapped[str] = mapped_column(String(64))
     translate: Mapped[bool] = mapped_column(Boolean, default=False)
     personalized: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -90,6 +91,7 @@ class Call(Base):
     campaign_id: Mapped[int] = mapped_column(ForeignKey("campaigns.id", ondelete="CASCADE"), index=True)
     name: Mapped[str | None] = mapped_column(String(200))
     phone_number: Mapped[str] = mapped_column(String(32))
+    email: Mapped[str | None] = mapped_column(String(320))
     variables: Mapped[dict] = mapped_column(JSON, default=dict)
     spoken_message: Mapped[str | None] = mapped_column(Text)
     audio_key: Mapped[str | None] = mapped_column(String(512))
@@ -126,3 +128,15 @@ class CallEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, server_default=func.now())
 
     call: Mapped[Call] = relationship(back_populates="events")
+
+
+class AudioFile(Base):
+    """Generated audio stored in PostgreSQL (STORAGE_BACKEND=database)."""
+
+    __tablename__ = "audio_files"
+
+    key: Mapped[str] = mapped_column(String(512), primary_key=True)
+    content_type: Mapped[str] = mapped_column(String(64))
+    size_bytes: Mapped[int] = mapped_column(Integer)
+    data: Mapped[bytes] = mapped_column(LargeBinary)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, server_default=func.now())

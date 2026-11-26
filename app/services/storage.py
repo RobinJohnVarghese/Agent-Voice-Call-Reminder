@@ -20,6 +20,24 @@ def build_key(settings: Settings, *parts: str) -> str:
     return "/".join([p for p in (prefix, *parts) if p])
 
 
+class DatabaseStorage:
+    """Stores audio in the PostgreSQL `audio_files` table; served at {PUBLIC_BASE_URL}/media/<key>."""
+
+    def __init__(self, settings: Settings):
+        self.base_url = settings.public_base_url
+
+    def save(self, key: str, data: bytes, content_type: str) -> str:
+        from app.database import session_scope
+        from app.models import AudioFile
+
+        with session_scope() as db:
+            db.merge(AudioFile(key=key, content_type=content_type, size_bytes=len(data), data=data))
+        return key
+
+    def playback_url(self, key: str) -> str:
+        return f"{self.base_url}/media/{key}"
+
+
 class LocalStorage:
     """Stores audio on disk; FastAPI serves it at {PUBLIC_BASE_URL}/media/<key>."""
 
@@ -94,7 +112,7 @@ class GCSStorage:
         )
 
 
-_BACKENDS = {"local": LocalStorage, "s3": S3Storage, "gcs": GCSStorage}
+_BACKENDS = {"database": DatabaseStorage, "local": LocalStorage, "s3": S3Storage, "gcs": GCSStorage}
 _cache: dict[str, Storage] = {}
 
 

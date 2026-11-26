@@ -27,7 +27,8 @@ class Settings(BaseSettings):
     gemini_api_key: str = ""
     gemini_tts_model: str = "gemini-2.5-flash-preview-tts"
     gemini_text_model: str = "gemini-2.5-flash"
-    gemini_default_voice: str = "Kore"
+    gemini_female_voice: str = "Kore"
+    gemini_male_voice: str = "Charon"
     tts_style_instruction: str = (
         "Read the following reminder aloud in {language}, in a clear, warm and natural voice "
         "at a moderate pace. Only speak the reminder text itself"
@@ -35,7 +36,7 @@ class Settings(BaseSettings):
     audio_format: Literal["mp3", "wav"] = "mp3"
 
     # Audio storage
-    storage_backend: Literal["s3", "gcs", "local"] = "s3"
+    storage_backend: Literal["database", "s3", "gcs", "local"] = "database"
     storage_prefix: str = "voice-reminders"
     signed_url_expiry_seconds: int = 3600
     local_media_dir: str = "media"
@@ -64,10 +65,13 @@ class Settings(BaseSettings):
     calls_per_second: float = 2
 
     # Retries
-    max_call_attempts: int = 3
+    max_call_attempts: int = 2
     retry_delay_seconds: int = 900
     retry_on_statuses: list[str] = Field(default_factory=lambda: ["no_answer", "busy"])
     stale_call_timeout_minutes: int = 30
+
+    # Personalised {placeholder} messages (one audio per recipient). Off: one shared message per campaign.
+    enable_personalization: bool = False
 
     # Recipient import
     default_country_code: str = "IN"
@@ -88,6 +92,9 @@ class Settings(BaseSettings):
     @classmethod
     def _strip_slash(cls, value: str) -> str:
         return value.rstrip("/")
+
+    def voice_for(self, gender: str) -> str:
+        return self.gemini_male_voice if gender == "male" else self.gemini_female_voice
 
     @property
     def broker_url(self) -> str:

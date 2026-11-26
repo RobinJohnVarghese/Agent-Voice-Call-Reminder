@@ -1,4 +1,5 @@
 import io
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 
 import pandas as pd
@@ -11,6 +12,7 @@ PHONE_COLUMNS = (
     "contact", "contact_number", "contact_no", "msisdn", "to",
 )
 NAME_COLUMNS = ("name", "full_name", "recipient", "recipient_name", "customer_name", "customer")
+EMAIL_COLUMNS = ("email", "email_id", "email_address", "mail", "mail_id", "e_mail")
 
 
 class RecipientFileError(ValueError):
@@ -21,6 +23,7 @@ class RecipientFileError(ValueError):
 class Recipient:
     phone_number: str
     name: str | None
+    email: str | None
     variables: dict[str, str]
 
 
@@ -81,28 +84,25 @@ def normalize_phone(raw: str, default_region: str) -> str:
     return phonenumbers.format_number(parsed, phonenumbers.PhoneNumberFormat.E164)
 
 
-def parse_recipients(filename: str, content: bytes, default_region: str, max_rows: int) -> ParseResult:
-    frame = _read_frame(filename, content)
-    frame = frame.dropna(how="all")
-    columns = [normalize_key(c) for c in frame.columns]
-    if len(set(columns)) != len(columns):
-        raise RecipientFileError("Duplicate column names in file.")
-    frame.columns = columns
+def _pick(columns: Iterable[str], candidates: tuple[str, ...]) -> str | None:
+    columns = set(columns)
+    return next((c for c in candidates if c in columns), None)
 
-    phone_col = next((c for c in PHONE_COLUMNS if c in columns), None)
+
+def build_recipients(rows: list[dict], default_region: str, first_row_number: int = 1) -> ParseResult:
+    """Validate and de-duplicate recipient rows (keys are normalised column names)."""
+    columns = sorted({normalize_key(k) for row in rows for k in row})
+    phone_col = _pick(columns, PHONE_COLUMNS)
     if not phone_col:
-        raise RecipientFileError(
-            "No phone column found. Add a column named one of: " + ", ".join(PHONE_COLUMNS[:6])
-        )
-    name_col = next((c for c in NAME_COLUMNS if c in columns), None)
-
-    if len(frame) > max_rows:
-        raise RecipientFileError(f"File has {len(frame)} rows; the maximum is {max_rows}.")
+        raise RecipientFileError("No phone column found. Add a column named one of: " + ", ".join(PHONE_COLUMNS[:6]))
+    name_col = _pick(columns, NAME_COLUMNS)
+    email_col = _pick(columns, EMAIL_COLUMNS)
 
     result = ParseResult(columns=columns)
     seen: set[str] = set()
-    for index, row in enumerate(frame.to_dict(orient="records"), start=2):
-        raw_phone = _clean(row.get(phone_col))
+    for index, raw_row in enumerate(rows, start=first_row_number):
+        row = {normalize_key(k): _clean(v) for k, v in raw_row.items()}
+        raw_phone = row.get(phone_col, "")
         if not raw_phone:
             result.errors.append({"row": index, "error": "missing phone number"})
             continue
@@ -115,10 +115,22 @@ def parse_recipients(filename: str, content: bytes, default_region: str, max_row
             result.duplicates += 1
             continue
         seen.add(phone)
-        variables = {k: _clean(v) for k, v in row.items()}
-        variables["phone"] = phone
-        name = _clean(row.get(name_col)) if name_col else ""
-        if name_col:
-            variables["name"] = name
-        result.recipients.append(Recipient(phone_number=phone, name=name or None, variables=variables))
+        name = row.get(name_col, "") if name_col else ""
+        email = row.get(email_col, "") if email_col else ""
+        variables = {**row, "phone": phone, "name": name, "email": email}
+        result.recipients.append(Recipient(phone_number=phone, name=name or None, email=email or None,
+                                           variables=variables))
     return result
+
+
+def parse_recipients(filename: str, content: bytes, default_region: str, max_rows: int) -> ParseResult:
+    frame = _read_frame(filename, content).dropna(how="all")
+    columns = [normalize_key(c) for c in frame.columns]
+    if len(set(columns)) != len(columns):
+        raise RecipientFileError("Duplicate column names in file.")
+    if not _pick(columns, PHONE_COLUMNS):
+        raise RecipientFileError("No phone column found. Add a column named one of: " + ", ".join(PHONE_COLUMNS[:6]))
+    if len(frame) > max_rows:
+        raise RecipientFileError(f"File has {len(frame)} rows; the maximum is {max_rows}.")
+    frame.columns = columns
+    return build_recipients(frame.to_dict(orient="records"), default_region, first_row_number=2)

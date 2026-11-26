@@ -1,23 +1,19 @@
 LANGUAGES: dict[str, str] = {
     "en-IN": "English (India)",
-    "en-US": "English (US)",
     "hi-IN": "Hindi",
+    "bn-IN": "Bengali",
+    "gu-IN": "Gujarati",
+    "kn-IN": "Kannada",
     "ml-IN": "Malayalam",
+    "mr-IN": "Marathi",
+    "or-IN": "Odia",
+    "pa-IN": "Punjabi",
     "ta-IN": "Tamil",
     "te-IN": "Telugu",
-    "kn-IN": "Kannada",
-    "bn-IN": "Bengali",
-    "mr-IN": "Marathi",
-    "gu-IN": "Gujarati",
-    "ar-XA": "Arabic",
+    "ur-IN": "Urdu",
 }
 
-GEMINI_VOICES: list[str] = [
-    "Kore", "Puck", "Charon", "Zephyr", "Fenrir", "Leda", "Orus", "Aoede", "Callirrhoe", "Autonoe",
-    "Enceladus", "Iapetus", "Umbriel", "Algieba", "Despina", "Erinome", "Algenib", "Rasalgethi",
-    "Laomedeia", "Achernar", "Alnilam", "Schedar", "Gacrux", "Pulcherrima", "Achird",
-    "Zubenelgenubi", "Vindemiatrix", "Sadachbia", "Sadaltager", "Sulafat",
-]
+VOICE_GENDERS = ("female", "male")
 
 
 def language_name(code: str) -> str:

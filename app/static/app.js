@@ -19,7 +19,7 @@ const fmt = (d) => (d ? new Date(d).toLocaleString() : "");
 async function loadOptions() {
   const opts = await api("/api/options");
   $("#language").innerHTML = opts.languages.map((l) => `<option value="${l.code}">${esc(l.name)}</option>`).join("");
-  $("#voice").innerHTML = opts.voices.map((v) => `<option ${v === opts.default_voice ? "selected" : ""}>${v}</option>`).join("");
+  $("#personalization-hint").classList.toggle("hidden", !opts.enable_personalization);
   $("#providers").textContent = `TTS: ${opts.tts_provider} · Telephony: ${opts.telephony_provider} · Storage: ${opts.storage_backend}`;
   const statuses = ["pending", "queued", "initiated", "ringing", "in_progress", "retry_scheduled", "completed", "no_answer", "busy", "failed", "cancelled"];
   $("#status-filter").innerHTML += statuses.map((s) => `<option value="${s}">${s.replace(/_/g, " ")}</option>`).join("");
@@ -40,7 +40,7 @@ async function loadDetail() {
   const c = await api(`/api/campaigns/${state.selected}`);
   $("#detail").classList.remove("hidden");
   $("#detail-title").innerHTML = `${esc(c.name)} ${badge(c.status)}`;
-  $("#detail-meta").textContent = `Language ${c.language} · Voice ${c.voice} · ${c.personalized ? "Personalised audio per recipient" : "One shared audio"} · File ${c.source_filename || "-"}`;
+  $("#detail-meta").textContent = `Language ${c.language} · ${c.voice_gender} voice (${c.voice}) · ${c.personalized ? "Personalised audio per recipient" : "One shared audio"} · File ${c.source_filename || "-"}`;
   $("#detail-message").textContent = c.spoken_message || c.message;
   $("#detail-error").textContent = c.error || "";
   const audio = $("#detail-audio");
@@ -60,9 +60,9 @@ async function loadDetail() {
   const calls = await api(`/api/campaigns/${c.id}/calls?${q}`);
   state.total = calls.total;
   $("#calls tbody").innerHTML = calls.items.map((x) => `<tr>
-    <td>${esc(x.name)}</td><td>${esc(x.phone_number)}</td><td>${badge(x.status)}</td><td>${x.attempts}</td>
+    <td>${esc(x.name)}</td><td>${esc(x.phone_number)}</td><td>${esc(x.email)}</td><td>${badge(x.status)}</td><td>${x.attempts}</td>
     <td>${esc(x.hangup_cause)}</td><td>${x.duration_seconds ?? ""}</td><td>${fmt(x.updated_at)}</td><td class="error">${esc(x.last_error)}</td></tr>`).join("")
-    || `<tr><td colspan="8" class="muted">No calls</td></tr>`;
+    || `<tr><td colspan="9" class="muted">No calls</td></tr>`;
   const pages = Math.max(1, Math.ceil(calls.total / state.pageSize));
   $("#page-info").textContent = `Page ${state.page} of ${pages} (${calls.total} calls)`;
   $("#prev").disabled = state.page <= 1;
@@ -93,7 +93,7 @@ $("#create-form").addEventListener("submit", async (e) => {
   out.className = "muted";
   out.textContent = "Uploading…";
   try {
-    const data = await api("/api/campaigns", { method: "POST", body: new FormData(e.target) });
+    const data = await api("/api/campaigns/upload", { method: "POST", body: new FormData(e.target) });
     const s = data.import_summary;
     out.className = "success";
     out.textContent = `Campaign created: ${s.imported} recipients imported, ${s.duplicates} duplicates skipped, ${s.invalid} invalid rows.`
@@ -101,7 +101,6 @@ $("#create-form").addEventListener("submit", async (e) => {
     state.selected = data.campaign.id;
     state.page = 1;
     e.target.reset();
-    await loadOptions().catch(() => {});
     refresh();
   } catch (err) {
     out.className = "error";

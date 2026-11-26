@@ -8,18 +8,18 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.database import get_db
-from app.languages import GEMINI_VOICES, LANGUAGES
+from app.languages import LANGUAGES, VOICE_GENDERS
 from app.models import Call, CallStatus, Campaign, CampaignStatus
-from app.schemas import CallPage, CampaignCreated, CampaignOut, ImportSummary
+from app.schemas import CallPage, CampaignCreate, CampaignCreated, CampaignOut, ImportSummary
 from app.services.call_status import status_counts
-from app.services.recipients import RecipientFileError, parse_recipients
+from app.services.recipients import ParseResult, RecipientFileError, build_recipients, parse_recipients
 from app.services.storage import get_storage
 from app.services.templating import placeholders
 from app.worker import tasks
 
 router = APIRouter(prefix="/api", tags=["campaigns"])
 
-SAMPLE_CSV = "name,phone,appointment_date\nAsha Menon,+919876543210,28 November\nRahul Nair,9876501234,29 November\n"
+SAMPLE_CSV = "name,phone,email\nAsha Menon,+919876543210,asha@example.com\nRahul Nair,9876501234,rahul@example.com\n"
 
 
 def _campaign_out(db: Session, campaign: Campaign) -> CampaignOut:
@@ -43,8 +43,8 @@ def options():
     settings = get_settings()
     return {
         "languages": [{"code": code, "name": name} for code, name in LANGUAGES.items()],
-        "voices": GEMINI_VOICES,
-        "default_voice": settings.gemini_default_voice,
+        "voice_genders": list(VOICE_GENDERS),
+        "enable_personalization": settings.enable_personalization,
         "tts_provider": settings.tts_provider,
         "telephony_provider": settings.telephony_provider,
         "storage_backend": settings.storage_backend,
@@ -60,41 +60,38 @@ def sample_csv():
     )
 
 
-@router.post("/campaigns", response_model=CampaignCreated, status_code=201)
-async def create_campaign(
-    file: UploadFile = File(..., description="CSV or Excel file with a phone column"),
-    name: str = Form(..., max_length=200),
-    message: str = Form(..., max_length=2000),
-    language: str = Form("en-IN"),
-    voice: str | None = Form(None),
-    translate: bool = Form(False),
-    auto_start: bool = Form(False),
-    db: Session = Depends(get_db),
-):
+def _save_campaign(
+    db: Session,
+    *,
+    name: str,
+    message: str,
+    language: str,
+    voice_gender: str,
+    translate: bool,
+    auto_start: bool,
+    parsed: ParseResult,
+    source_filename: str | None,
+) -> CampaignCreated:
     settings = get_settings()
     message = message.strip()
     if not message:
         raise HTTPException(422, "Message is required")
     if language not in LANGUAGES:
-        raise HTTPException(422, f"Unsupported language '{language}'")
-    voice = voice or settings.gemini_default_voice
-    if voice not in GEMINI_VOICES:
-        raise HTTPException(422, f"Unsupported voice '{voice}'")
+        raise HTTPException(422, f"Unsupported language '{language}'. Supported: {', '.join(LANGUAGES)}")
+    if voice_gender not in VOICE_GENDERS:
+        raise HTTPException(422, "voice_gender must be 'female' or 'male'")
 
-    content = await file.read()
-    if len(content) > settings.max_upload_mb * 1024 * 1024:
-        raise HTTPException(413, f"File is larger than {settings.max_upload_mb} MB")
-    try:
-        fields = placeholders(message)
-        parsed = parse_recipients(file.filename or "", content, settings.default_country_code, settings.max_upload_rows)
-    except (RecipientFileError, ValueError) as exc:
-        raise HTTPException(422, str(exc)) from exc
-
-    missing = fields - set(parsed.columns) - {"name", "phone"}
-    if missing:
-        raise HTTPException(
-            422, f"Message uses placeholders not found in the file columns: {', '.join(sorted(missing))}"
-        )
+    fields: set[str] = set()
+    if settings.enable_personalization:
+        try:
+            fields = placeholders(message)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        missing = fields - set(parsed.columns) - {"name", "phone", "email"}
+        if missing:
+            raise HTTPException(
+                422, f"Message uses placeholders not found in the recipient fields: {', '.join(sorted(missing))}"
+            )
     if not parsed.recipients:
         raise HTTPException(422, {"message": "No valid recipients found", "errors": parsed.errors[:50]})
 
@@ -102,17 +99,18 @@ async def create_campaign(
         name=name.strip(),
         message=message,
         language=language,
-        voice=voice,
+        voice_gender=voice_gender,
+        voice=settings.voice_for(voice_gender),
         translate=translate,
         personalized=bool(fields),
         auto_start=auto_start,
-        source_filename=file.filename,
+        source_filename=source_filename,
         status=CampaignStatus.draft,
     )
     db.add(campaign)
     db.flush()
     db.add_all(
-        Call(campaign_id=campaign.id, name=r.name, phone_number=r.phone_number, variables=r.variables)
+        Call(campaign_id=campaign.id, name=r.name, phone_number=r.phone_number, email=r.email, variables=r.variables)
         for r in parsed.recipients
     )
     db.commit()
@@ -127,6 +125,60 @@ async def create_campaign(
             invalid=len(parsed.errors),
             errors=parsed.errors[:100],
         ),
+    )
+
+
+@router.post("/campaigns", response_model=CampaignCreated, status_code=201)
+def create_campaign(payload: CampaignCreate, db: Session = Depends(get_db)):
+    """Create a campaign from JSON: recipients (name, phone, email), message, language and voice gender."""
+    settings = get_settings()
+    if len(payload.recipients) > settings.max_upload_rows:
+        raise HTTPException(422, f"At most {settings.max_upload_rows} recipients per campaign")
+    rows = [r.model_dump(mode="json") for r in payload.recipients]
+    parsed = build_recipients(rows, settings.default_country_code)
+    return _save_campaign(
+        db,
+        name=payload.name,
+        message=payload.message,
+        language=payload.language,
+        voice_gender=payload.voice_gender,
+        translate=payload.translate,
+        auto_start=payload.auto_start,
+        parsed=parsed,
+        source_filename=None,
+    )
+
+
+@router.post("/campaigns/upload", response_model=CampaignCreated, status_code=201)
+async def upload_campaign(
+    file: UploadFile = File(..., description="CSV or Excel file with phone, name and email columns"),
+    name: str = Form(..., max_length=200),
+    message: str = Form(..., max_length=2000),
+    language: str = Form("en-IN"),
+    voice_gender: str = Form("female"),
+    translate: bool = Form(False),
+    auto_start: bool = Form(False),
+    db: Session = Depends(get_db),
+):
+    """Create a campaign from an uploaded CSV/Excel recipients file."""
+    settings = get_settings()
+    content = await file.read()
+    if len(content) > settings.max_upload_mb * 1024 * 1024:
+        raise HTTPException(413, f"File is larger than {settings.max_upload_mb} MB")
+    try:
+        parsed = parse_recipients(file.filename or "", content, settings.default_country_code, settings.max_upload_rows)
+    except RecipientFileError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return _save_campaign(
+        db,
+        name=name,
+        message=message,
+        language=language,
+        voice_gender=voice_gender,
+        translate=translate,
+        auto_start=auto_start,
+        parsed=parsed,
+        source_filename=file.filename,
     )
 
 
@@ -213,12 +265,12 @@ def export_calls(campaign_id: int, db: Session = Depends(get_db)):
     buffer = io.StringIO()
     writer = csv.writer(buffer)
     writer.writerow(
-        ["name", "phone_number", "status", "attempts", "hangup_cause", "duration_seconds",
+        ["name", "phone_number", "email", "status", "attempts", "hangup_cause", "duration_seconds",
          "answered_at", "ended_at", "last_error", "plivo_call_uuid"]
     )
     for c in calls:
         writer.writerow(
-            [c.name or "", c.phone_number, c.status.value, c.attempts, c.hangup_cause or "",
+            [c.name or "", c.phone_number, c.email or "", c.status.value, c.attempts, c.hangup_cause or "",
              c.duration_seconds if c.duration_seconds is not None else "",
              c.answered_at.isoformat() if c.answered_at else "", c.ended_at.isoformat() if c.ended_at else "",
              c.last_error or "", c.plivo_call_uuid or ""]
