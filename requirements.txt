@@ -1,0 +1,16 @@
+fastapi==0.162.5
+uvicorn[standard]==0.54.0
+python-multipart==0.0.32
+pydantic-settings==2.15.0
+SQLAlchemy==2.0.58
+alembic==1.20.1
+psycopg[binary]==3.3.9
+celery==5.7.0
+redis==8.1.0
+google-genai==2.33.0
+plivo==4.63.1
+pandas==2.3.3
+openpyxl==3.1.5
+phonenumbers==9.0.44
+boto3==1.44.12
+google-cloud-storage==3.17.2
