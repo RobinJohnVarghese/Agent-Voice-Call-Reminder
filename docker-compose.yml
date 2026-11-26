@@ -1,0 +1,55 @@
+x-app: &app
+  build: .
+  env_file: .env
+  environment:
+    DATABASE_URL: postgresql+psycopg://voice:voice@postgres:5432/voice_reminder
+    REDIS_URL: redis://redis:6379/0
+  volumes:
+    - media:/app/media
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+  restart: unless-stopped
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: voice
+      POSTGRES_PASSWORD: voice
+      POSTGRES_DB: voice_reminder
+    ports: ["5432:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U voice -d voice_reminder"]
+      interval: 5s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+    restart: unless-stopped
+
+  api:
+    <<: *app
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips='*'"
+    ports: ["8000:8000"]
+
+  worker:
+    <<: *app
+    command: celery -A app.worker.celery_app worker --loglevel=INFO --concurrency=4
+
+  beat:
+    <<: *app
+    command: celery -A app.worker.celery_app beat --loglevel=INFO --schedule /tmp/celerybeat-schedule
+
+volumes:
+  pgdata:
+  media:

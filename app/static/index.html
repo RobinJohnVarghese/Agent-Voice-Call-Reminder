@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Voice Call Reminder</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <header>
+    <h1>Voice Call Reminder</h1>
+    <span id="providers" class="muted"></span>
+    <a href="/docs" class="muted" target="_blank">API docs</a>
+  </header>
+
+  <main>
+    <section class="card">
+      <h2>New reminder campaign</h2>
+      <form id="create-form">
+        <label>Campaign name <input name="name" required maxlength="200" placeholder="Clinic appointment reminder" /></label>
+        <label>Recipients file (CSV or Excel)
+          <input name="file" type="file" accept=".csv,.xlsx,.xls" required />
+          <small>Columns: <code>name</code>, <code>phone</code>, <code>email</code> (phone is required).
+            <a href="/api/sample-recipients.csv">Download sample</a></small>
+        </label>
+        <label>Message
+          <textarea name="message" rows="4" required maxlength="2000"
+            placeholder="Hello, this is a reminder that your appointment is tomorrow at 10 AM."></textarea>
+          <small id="personalization-hint" class="hidden">Use <code>{column_name}</code> placeholders to personalise each call (one audio per recipient).</small>
+        </label>
+        <div class="row">
+          <label>Language <select name="language" id="language"></select></label>
+          <label>Voice <select name="voice_gender" id="voice-gender"><option value="female">Female</option><option value="male">Male</option></select></label>
+        </div>
+        <div class="row">
+          <label class="check"><input type="checkbox" name="translate" value="true" /> Translate message into the selected language</label>
+          <label class="check"><input type="checkbox" name="auto_start" value="true" /> Start calling as soon as audio is ready</label>
+        </div>
+        <button type="submit">Create campaign</button>
+        <div id="create-result"></div>
+      </form>
+    </section>
+
+    <section class="card">
+      <h2>Campaigns</h2>
+      <table id="campaigns">
+        <thead><tr><th>#</th><th>Name</th><th>Language</th><th>Status</th><th>Calls</th><th>Completed</th><th>Failed / unanswered</th><th>Created</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <section class="card hidden" id="detail">
+      <div class="detail-head">
+        <h2 id="detail-title"></h2>
+        <div class="actions">
+          <button id="btn-start">Start calls</button>
+          <button id="btn-regen" class="secondary">Regenerate audio</button>
+          <button id="btn-cancel" class="danger">Cancel</button>
+          <a id="btn-export" class="button secondary">Export CSV</a>
+        </div>
+      </div>
+      <p id="detail-meta" class="muted"></p>
+      <p><strong>Spoken message:</strong> <span id="detail-message"></span></p>
+      <p id="detail-error" class="error"></p>
+      <audio id="detail-audio" controls class="hidden"></audio>
+      <div id="detail-counts" class="chips"></div>
+      <div class="row">
+        <label>Filter <select id="status-filter"><option value="">All</option></select></label>
+      </div>
+      <table id="calls">
+        <thead><tr><th>Name</th><th>Phone</th><th>Email</th><th>Status</th><th>Attempts</th><th>Hangup cause</th><th>Duration</th><th>Updated</th><th>Error</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <div class="pager"><button id="prev" class="secondary">Prev</button><span id="page-info"></span><button id="next" class="secondary">Next</button></div>
+    </section>
+  </main>
+  <script src="/static/app.js"></script>
+</body>
+</html>
